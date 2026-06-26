@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,11 +17,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.example.agriiot.data.model.Actuator
 import com.example.agriiot.data.model.Telemetry
 import com.example.agriiot.viewmodel.UiState
 import com.example.agriiot.viewmodel.ZoneViewModel
@@ -32,11 +36,16 @@ fun DashboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isManualLoading by viewModel.isManualLoading.collectAsState()
+    val availableZones by viewModel.availableZones.collectAsState()
+    val selectedZoneId by viewModel.selectedZoneId.collectAsState()
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
+
+    var expanded by remember { mutableStateOf(false) }
 
     // Polling lifecycle management
     LaunchedEffect(lifecycleOwner) {
@@ -57,80 +66,165 @@ fun DashboardScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) { data ->
-            Snackbar(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                snackbarData = data
-            )
-        } },
+        snackbarHost = { 
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    snackbarData = data
+                )
+            } 
+        },
         topBar = {
             TopAppBar(title = { Text("Smart Agriculture Dashboard") })
         }
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                scope.launch {
-                    isRefreshing = true
-                    viewModel.refresh()
-                    isRefreshing = false
-                }
-            },
-            state = pullToRefreshState,
-            modifier = Modifier.padding(padding).fillMaxSize()
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
         ) {
-            when (val state = uiState) {
-                is UiState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                is UiState.Success -> {
-                    val zoneData = state.data
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
-                        Text("Telemetry", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        TelemetryGrid(zoneData.telemetry)
+            // Zone Selector
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = selectedZoneId,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Select Zone") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                )
 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text("Controls", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        ActuatorControls(
-                            waterPump = zoneData.actuator.waterPump,
-                            fan = zoneData.actuator.fan,
-                            growLight = zoneData.actuator.growLight,
-                            onCommand = { target, action -> viewModel.sendCommand(target, action) },
-                            onSchedule = { target, mins -> viewModel.scheduleDeviceOff(target, mins) },
-                            isLoading = isManualLoading
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    availableZones.forEach { zone ->
+                        DropdownMenuItem(
+                            text = { Text(zone) },
+                            onClick = {
+                                viewModel.selectZone(zone)
+                                expanded = false
+                            },
+                            contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                         )
                     }
                 }
-                is UiState.Error -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Error: ${state.message}",
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 24.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.refresh() }) {
-                            Text("Retry")
+            }
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    scope.launch {
+                        isRefreshing = true
+                        viewModel.refresh()
+                        isRefreshing = false
+                    }
+                },
+                state = pullToRefreshState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                when (val state = uiState) {
+                    is UiState.Loading -> {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    }
+                    is UiState.Success -> {
+                        val zoneData = state.data
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        ) {
+                            // Quick Status Row
+                            zoneData.actuator?.let {
+                                QuickStatusRow(it)
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+
+                            Text("Telemetry", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            zoneData.telemetry?.let {
+                                TelemetryGrid(it)
+                            } ?: Text("Telemetry data unavailable")
+
+                            zoneData.actuator?.let { actuator ->
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text("Controls", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                ActuatorControls(
+                                    waterPump = actuator.waterPump ?: "OFF",
+                                    fan = actuator.fan ?: "OFF",
+                                    growLight = actuator.growLight ?: "OFF",
+                                    onCommand = { target, action -> viewModel.sendCommand(target, action) },
+                                    onSchedule = { target, mins -> viewModel.scheduleDeviceOff(target, mins) },
+                                    isLoading = isManualLoading
+                                )
+                            }
+                        }
+                    }
+                    is UiState.Error -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Error: ${state.message}",
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = { viewModel.refresh() }) {
+                                Text("Retry")
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun QuickStatusRow(actuator: Actuator) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        StatusChip("Pump", actuator.waterPump ?: "OFF", Icons.Default.Water)
+        StatusChip("Fan", actuator.fan ?: "OFF", Icons.Default.Air)
+        StatusChip("Light", actuator.growLight ?: "OFF", Icons.Default.Lightbulb)
+    }
+}
+
+@Composable
+fun StatusChip(label: String, status: String, icon: ImageVector) {
+    val isOn = status.lowercase() == "on"
+    val containerColor = if (isOn) Color(0xFFE8F5E9) else Color(0xFFF5F5F5)
+    val contentColor = if (isOn) Color(0xFF2E7D32) else Color(0xFF757575)
+
+    AssistChip(
+        onClick = { },
+        label = { Text(label) },
+        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = containerColor,
+            labelColor = contentColor,
+            leadingIconContentColor = contentColor
+        ),
+        border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = contentColor.copy(alpha = 0.2f))
+    )
 }
 
 @Composable

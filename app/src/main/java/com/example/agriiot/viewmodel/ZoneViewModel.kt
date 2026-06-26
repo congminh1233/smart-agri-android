@@ -43,11 +43,25 @@ class ZoneViewModel @Inject constructor(
     private val _isManualLoading = MutableStateFlow(false)
     val isManualLoading: StateFlow<Boolean> = _isManualLoading.asStateFlow()
 
+    private val _availableZones = MutableStateFlow(listOf("zone-01", "zone-02", "zone-03"))
+    val availableZones: StateFlow<List<String>> = _availableZones.asStateFlow()
+
+    private val _selectedZoneId = MutableStateFlow("zone-01")
+    val selectedZoneId: StateFlow<String> = _selectedZoneId.asStateFlow()
+
     private var pollingJob: kotlinx.coroutines.Job? = null
-    private val zoneId = "zone1" // Default zone
 
     init {
+        viewModelScope.launch {
+            _selectedZoneId.collect {
+                refresh()
+            }
+        }
         startPolling()
+    }
+
+    fun selectZone(newZoneId: String) {
+        _selectedZoneId.value = newZoneId
     }
 
     fun startPolling() {
@@ -74,7 +88,7 @@ class ZoneViewModel @Inject constructor(
     }
 
     private suspend fun fetchData() {
-        repository.getZoneState(zoneId).onSuccess {
+        repository.getZoneState(_selectedZoneId.value).onSuccess {
             _uiState.value = UiState.Success(it)
         }.onFailure {
             _uiState.value = UiState.Error(it.message ?: "Unknown error")
@@ -82,7 +96,7 @@ class ZoneViewModel @Inject constructor(
     }
 
     private suspend fun checkEvents() {
-        repository.getLatestEvents(zoneId).onSuccess { events ->
+        repository.getLatestEvents(_selectedZoneId.value).onSuccess { events ->
             events.firstOrNull { it.severity == "critical" }?.let {
                 _criticalEvent.emit(it)
             }
@@ -94,7 +108,7 @@ class ZoneViewModel @Inject constructor(
         
         viewModelScope.launch {
             _isManualLoading.value = true
-            repository.sendCommand(zoneId, ZoneCommand(target, action))
+            repository.sendCommand(_selectedZoneId.value, ZoneCommand(target, action))
                 .onSuccess {
                     fetchData() // Refresh state immediately after command
                 }
@@ -104,7 +118,7 @@ class ZoneViewModel @Inject constructor(
 
     fun scheduleDeviceOff(target: String, minutes: Long) {
         val inputData = Data.Builder()
-            .putString("zone_id", zoneId)
+            .putString("zone_id", _selectedZoneId.value)
             .putString("target", target)
             .putString("action", "off")
             .build()

@@ -4,21 +4,21 @@ import com.google.gson.annotations.SerializedName
 
 data class ZoneState(
     @SerializedName("zone_id") val zoneId: String,
-    val telemetry: Telemetry,
-    val actuator: Actuator
+    val telemetry: Telemetry?,
+    val actuator: Actuator?
 )
 
 data class Telemetry(
     @SerializedName("air_temperature") val airTemperature: Float,
     @SerializedName("soil_moisture") val soilMoisture: Float,
-    @SerializedName("water_level") val waterLevel: Float,
-    val light: Float
+    @SerializedName("water_tank_level") val waterLevel: Float,
+    @SerializedName("light_lux") val light: Float
 )
 
 data class Actuator(
-    @SerializedName("water_pump") val waterPump: String,
-    val fan: String,
-    @SerializedName("grow_light") val growLight: String
+    @SerializedName("water_pump") val waterPump: String?,
+    val fan: String?,
+    @SerializedName("grow_light") val growLight: String?
 )
 
 data class ZoneCommand(
