@@ -1,15 +1,25 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Tránh lộ Key bảo mật (Bắt buộc)
+*.jks
+*.keystore
+
+# Các thư mục build và cache sinh ra trong quá trình chạy
+build/
+.gradle/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Cấu hình máy cá nhân (Không được đẩy lên mạng)
 local.properties
+
+# File cấu hình của Android Studio / IntelliJ IDE
+*.iml
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# File rác của hệ điều hành macOS (Nếu sau này có người dùng Mac tải code)
+.DS_Store
