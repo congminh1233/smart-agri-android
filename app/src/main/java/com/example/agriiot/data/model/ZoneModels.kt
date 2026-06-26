@@ -5,7 +5,7 @@ import com.google.gson.annotations.SerializedName
 data class ZoneState(
     @SerializedName("zone_id") val zoneId: String,
     val telemetry: Telemetry?,
-    val actuator: Actuator?
+    @SerializedName("actuator_status") val actuator: Actuator?
 )
 
 data class Telemetry(
@@ -27,11 +27,19 @@ data class ZoneCommand(
     val reason: String = "manual_app_control"
 )
 
-data class Event(
-    val id: String,
-    @SerializedName("zone_id") val zoneId: String,
+data class EventItem(
     @SerializedName("event_type") val eventType: String,
+    @SerializedName("zone_id") val zoneId: String,
+    @SerializedName("device_id") val deviceId: String,
+    val message: String,
     val severity: String,
-    val description: String,
-    val timestamp: String
+    val timestamp: String,
+    @SerializedName("water_tank_level") val waterTankLevel: Float? = null
+)
+
+data class EventResponse(
+    @SerializedName("zone_id") val zoneId: String,
+    val events: List<EventItem>,
+    val returned: Int,
+    val total: Int
 )

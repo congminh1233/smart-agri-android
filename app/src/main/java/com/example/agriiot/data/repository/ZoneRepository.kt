@@ -1,6 +1,6 @@
 package com.example.agriiot.data.repository
 
-import com.example.agriiot.data.model.Event
+import com.example.agriiot.data.model.EventResponse
 import com.example.agriiot.data.model.ZoneCommand
 import com.example.agriiot.data.model.ZoneState
 import com.example.agriiot.data.remote.AgriApiService
@@ -11,6 +11,10 @@ import javax.inject.Singleton
 class ZoneRepository @Inject constructor(
     private val apiService: AgriApiService
 ) {
+    suspend fun getAllZones(): Result<List<String>> = runCatching {
+        apiService.getZones()
+    }
+
     suspend fun getZoneState(zoneId: String): Result<ZoneState> = runCatching {
         apiService.getZoneState(zoneId)
     }
@@ -19,7 +23,7 @@ class ZoneRepository @Inject constructor(
         apiService.sendCommand(zoneId, command)
     }
 
-    suspend fun getLatestEvents(zoneId: String): Result<List<Event>> = runCatching {
-        apiService.getEvents(zoneId)
+    suspend fun getZoneEvents(zoneId: String, limit: Int = 20): Result<EventResponse> = runCatching {
+        apiService.getZoneEvents(zoneId, limit)
     }
 }

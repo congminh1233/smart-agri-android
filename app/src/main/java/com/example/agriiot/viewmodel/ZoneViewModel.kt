@@ -1,24 +1,24 @@
 package com.example.agriiot.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.Data
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import com.example.agriiot.data.model.Event
+import androidx.work.*
+import com.example.agriiot.data.local.ScheduleDao
+import com.example.agriiot.data.local.ScheduleEntity
+import com.example.agriiot.data.local.SharedPrefsHelper
+import com.example.agriiot.data.model.EventItem
 import com.example.agriiot.data.model.ZoneCommand
 import com.example.agriiot.data.model.ZoneState
 import com.example.agriiot.data.repository.ZoneRepository
+import com.example.agriiot.util.NotificationHelper
 import com.example.agriiot.worker.DeviceControlWorker
+import com.example.agriiot.worker.ScheduleWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.*
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -30,15 +30,21 @@ sealed class UiState {
 
 @HiltViewModel
 class ZoneViewModel @Inject constructor(
+    application: Application,
     private val repository: ZoneRepository,
-    private val workManager: WorkManager
-) : ViewModel() {
+    private val workManager: WorkManager,
+    private val sharedPrefsHelper: SharedPrefsHelper,
+    private val scheduleDao: ScheduleDao
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
-    private val _criticalEvent = MutableSharedFlow<Event>()
-    val criticalEvent: SharedFlow<Event> = _criticalEvent.asSharedFlow()
+    private val _events = MutableStateFlow<List<EventItem>>(emptyList())
+    val events: StateFlow<List<EventItem>> = _events.asStateFlow()
+
+    private val _criticalEvent = MutableSharedFlow<EventItem>()
+    val criticalEvent: SharedFlow<EventItem> = _criticalEvent.asSharedFlow()
 
     private val _isManualLoading = MutableStateFlow(false)
     val isManualLoading: StateFlow<Boolean> = _isManualLoading.asStateFlow()
@@ -49,9 +55,13 @@ class ZoneViewModel @Inject constructor(
     private val _selectedZoneId = MutableStateFlow("zone-01")
     val selectedZoneId: StateFlow<String> = _selectedZoneId.asStateFlow()
 
+    val localSchedules: StateFlow<List<ScheduleEntity>> = scheduleDao.getAllSchedules()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private var pollingJob: kotlinx.coroutines.Job? = null
 
     init {
+        NotificationHelper.createNotificationChannel(application)
         viewModelScope.launch {
             _selectedZoneId.collect {
                 refresh()
@@ -69,7 +79,7 @@ class ZoneViewModel @Inject constructor(
         pollingJob = viewModelScope.launch {
             while (true) {
                 fetchData()
-                checkEvents()
+                fetchEvents()
                 delay(5000)
             }
         }
@@ -83,7 +93,7 @@ class ZoneViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = UiState.Loading
             fetchData()
-            checkEvents()
+            fetchEvents()
         }
     }
 
@@ -95,10 +105,28 @@ class ZoneViewModel @Inject constructor(
         }
     }
 
-    private suspend fun checkEvents() {
-        repository.getLatestEvents(_selectedZoneId.value).onSuccess { events ->
-            events.firstOrNull { it.severity == "critical" }?.let {
-                _criticalEvent.emit(it)
+    private suspend fun fetchEvents() {
+        repository.getZoneEvents(_selectedZoneId.value, limit = 20).onSuccess { response ->
+            val newEvents = response.events
+            _events.value = newEvents
+            
+            val lastSeenTimestamp = sharedPrefsHelper.getLastSeenTimestamp()
+            
+            newEvents.filter { it.timestamp > lastSeenTimestamp }.forEach { event ->
+                if (lastSeenTimestamp.isNotEmpty()) {
+                    if (event.severity == "critical" || event.eventType == "water_tank_low") {
+                        _criticalEvent.emit(event)
+                        NotificationHelper.showNotification(
+                            getApplication(),
+                            "Alert [${event.zoneId}]: ${event.eventType.replace("_", " ").uppercase()}",
+                            event.message
+                        )
+                    }
+                }
+            }
+            
+            newEvents.maxByOrNull { it.timestamp }?.let {
+                sharedPrefsHelper.setLastSeenTimestamp(it.timestamp)
             }
         }
     }
@@ -110,7 +138,7 @@ class ZoneViewModel @Inject constructor(
             _isManualLoading.value = true
             repository.sendCommand(_selectedZoneId.value, ZoneCommand(target, action))
                 .onSuccess {
-                    fetchData() // Refresh state immediately after command
+                    fetchData()
                 }
             _isManualLoading.value = false
         }
@@ -129,8 +157,92 @@ class ZoneViewModel @Inject constructor(
             .build()
 
         workManager.enqueue(workRequest)
-        
-        // Also turn it ON immediately as per requirements
         sendCommand(target, "on")
+    }
+
+    // --- Local Scheduling Logic ---
+
+    fun addSchedule(zoneId: String, deviceName: String, target: String, hour: Int, minute: Int) {
+        viewModelScope.launch {
+            val schedule = ScheduleEntity(
+                zoneId = zoneId,
+                deviceName = deviceName,
+                hour = hour,
+                minute = minute
+            )
+            val id = scheduleDao.insertSchedule(schedule).toInt()
+            reScheduleWork(id, schedule.copy(id = id), target)
+        }
+    }
+
+    fun deleteSchedule(schedule: ScheduleEntity) {
+        viewModelScope.launch {
+            schedule.workId?.let { workManager.cancelAllWorkByTag(it) }
+            scheduleDao.deleteSchedule(schedule)
+        }
+    }
+
+    fun updateSchedule(schedule: ScheduleEntity, target: String) {
+        viewModelScope.launch {
+            reScheduleWork(schedule.id, schedule, target)
+        }
+    }
+
+    fun toggleScheduleStatus(schedule: ScheduleEntity) {
+        viewModelScope.launch {
+            val newStatus = !schedule.isActive
+            if (newStatus) {
+                // Determine target based on device name
+                val target = when (schedule.deviceName) {
+                    "Water Pump" -> "water_pump"
+                    "Fan" -> "fan"
+                    "Grow Light" -> "grow_light"
+                    else -> "unknown"
+                }
+                reScheduleWork(schedule.id, schedule.copy(isActive = true), target)
+            } else {
+                schedule.workId?.let { workManager.cancelAllWorkByTag(it) }
+                scheduleDao.updateSchedule(schedule.copy(isActive = false, workId = null))
+            }
+        }
+    }
+
+    private suspend fun reScheduleWork(id: Int, schedule: ScheduleEntity, target: String) {
+        // Cancel existing work if any
+        schedule.workId?.let { workManager.cancelAllWorkByTag(it) }
+
+        val delay = calculateDelay(schedule.hour, schedule.minute)
+        val workTag = "schedule_work_$id"
+        
+        val inputData = Data.Builder()
+            .putString("zone_id", schedule.zoneId)
+            .putString("device_name", schedule.deviceName)
+            .putString("target", target)
+            .build()
+
+        val workRequest = OneTimeWorkRequestBuilder<ScheduleWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .addTag(workTag)
+            .setInputData(inputData)
+            .build()
+
+        workManager.enqueueUniqueWork(workTag, ExistingWorkPolicy.REPLACE, workRequest)
+        scheduleDao.updateSchedule(schedule.copy(workId = workTag))
+    }
+
+    private fun calculateDelay(hour: Int, minute: Int): Long {
+        val now = Calendar.getInstance()
+        val scheduledTime = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        if (scheduledTime.before(now)) {
+            scheduledTime.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        return scheduledTime.timeInMillis - now.timeInMillis
     }
 }
