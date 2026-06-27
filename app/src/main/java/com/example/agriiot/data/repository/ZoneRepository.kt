@@ -19,7 +19,7 @@ class ZoneRepository @Inject constructor(
         apiService.getZoneState(zoneId)
     }
 
-    suspend fun sendCommand(zoneId: String, command: ZoneCommand): Result<Map<String, String>> = runCatching {
+    suspend fun sendCommand(zoneId: String, command: ZoneCommand): Result<com.example.agriiot.data.model.CommandResponse> = runCatching {
         apiService.sendCommand(zoneId, command)
     }
 

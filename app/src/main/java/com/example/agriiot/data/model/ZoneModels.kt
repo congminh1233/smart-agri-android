@@ -27,6 +27,12 @@ data class ZoneCommand(
     val reason: String = "manual_app_control"
 )
 
+data class CommandResponse(
+    val status: String,
+    val message: String,
+    val command: ZoneCommand? = null
+)
+
 data class EventItem(
     @SerializedName("event_type") val eventType: String,
     @SerializedName("zone_id") val zoneId: String,

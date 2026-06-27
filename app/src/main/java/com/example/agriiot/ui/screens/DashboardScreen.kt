@@ -85,6 +85,42 @@ fun DashboardScreen(
         topBar = {
             Column {
                 TopAppBar(title = { Text("Smart Agriculture Dashboard") })
+                
+                // Zone Selector moved here to be shared across all tabs
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = selectedZoneId,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Select Zone") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        availableZones.forEach { zone ->
+                            DropdownMenuItem(
+                                text = { Text(zone) },
+                                onClick = {
+                                    viewModel.selectZone(zone)
+                                    expanded = false
+                                },
+                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                            )
+                        }
+                    }
+                }
+
                 TabRow(selectedTabIndex = selectedTab) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
@@ -102,40 +138,6 @@ fun DashboardScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = selectedZoneId,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Select Zone") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
-                )
-
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    availableZones.forEach { zone ->
-                        DropdownMenuItem(
-                            text = { Text(zone) },
-                            onClick = {
-                                viewModel.selectZone(zone)
-                                expanded = false
-                            },
-                            contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
-                        )
-                    }
-                }
-            }
-
             when (selectedTab) {
                 0 -> ControlTab(
                     uiState = uiState,
@@ -309,7 +311,7 @@ fun ScheduleTab(
 
         Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(4.dp)) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Zone Selector
+                // Zone Selector in New Schedule Form
                 ExposedDropdownMenuBox(
                     expanded = zoneExpanded,
                     onExpandedChange = { zoneExpanded = !zoneExpanded }
@@ -318,7 +320,7 @@ fun ScheduleTab(
                         value = selectedZone,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Select Zone") },
+                        label = { Text("Target Zone") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = zoneExpanded) },
                         modifier = Modifier.menuAnchor().fillMaxWidth()
                     )

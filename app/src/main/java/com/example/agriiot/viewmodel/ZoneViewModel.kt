@@ -145,6 +145,10 @@ class ZoneViewModel @Inject constructor(
     }
 
     fun scheduleDeviceOff(target: String, minutes: Long) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
         val inputData = Data.Builder()
             .putString("zone_id", _selectedZoneId.value)
             .putString("target", target)
@@ -153,6 +157,7 @@ class ZoneViewModel @Inject constructor(
 
         val workRequest = OneTimeWorkRequestBuilder<DeviceControlWorker>()
             .setInitialDelay(minutes, TimeUnit.MINUTES)
+            .setConstraints(constraints)
             .setInputData(inputData)
             .build()
 
@@ -214,6 +219,10 @@ class ZoneViewModel @Inject constructor(
         val delay = calculateDelay(schedule.hour, schedule.minute)
         val workTag = "schedule_work_$id"
         
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
         val inputData = Data.Builder()
             .putString("zone_id", schedule.zoneId)
             .putString("device_name", schedule.deviceName)
@@ -223,6 +232,7 @@ class ZoneViewModel @Inject constructor(
         val workRequest = OneTimeWorkRequestBuilder<ScheduleWorker>()
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
             .addTag(workTag)
+            .setConstraints(constraints)
             .setInputData(inputData)
             .build()
 

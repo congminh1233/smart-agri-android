@@ -1,5 +1,6 @@
 package com.example.agriiot.data.remote
 
+import com.example.agriiot.data.model.CommandResponse
 import com.example.agriiot.data.model.EventResponse
 import com.example.agriiot.data.model.ZoneCommand
 import com.example.agriiot.data.model.ZoneState
@@ -20,7 +21,7 @@ interface AgriApiService {
     suspend fun sendCommand(
         @Path("zone_id") zoneId: String,
         @Body command: ZoneCommand
-    ): Map<String, String>
+    ): CommandResponse
 
     @GET("zones/{zone_id}/events")
     suspend fun getZoneEvents(
