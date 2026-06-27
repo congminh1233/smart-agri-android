@@ -106,28 +106,71 @@ class ZoneViewModel @Inject constructor(
     }
 
     private suspend fun fetchEvents() {
-        repository.getZoneEvents(_selectedZoneId.value, limit = 20).onSuccess { response ->
-            val newEvents = response.events
-            _events.value = newEvents
+        val lastSeenTimestamp = sharedPrefsHelper.getLastSeenTimestamp()
+        val allZones = _availableZones.value
+        val selectedZone = _selectedZoneId.value
+        
+        val criticalEventsToNotify = mutableListOf<EventItem>()
+        var globalMaxTimestamp = lastSeenTimestamp
+
+        // 1. Cập nhật UI cho Zone hiện tại và quét cảnh báo cho TẤT CẢ các Zone
+        allZones.forEach { zoneId ->
+            // Sử dụng limit cao hơn cho zone đang chọn để hiển thị UI đầy đủ, 
+            // limit thấp cho các zone khác để tối ưu performance
+            val fetchLimit = if (zoneId == selectedZone) 20 else 5
             
-            val lastSeenTimestamp = sharedPrefsHelper.getLastSeenTimestamp()
-            
-            newEvents.filter { it.timestamp > lastSeenTimestamp }.forEach { event ->
-                if (lastSeenTimestamp.isNotEmpty()) {
-                    if (event.severity == "critical" || event.eventType == "water_tank_low") {
-                        _criticalEvent.emit(event)
-                        NotificationHelper.showNotification(
-                            getApplication(),
-                            "Alert [${event.zoneId}]: ${event.eventType.replace("_", " ").uppercase()}",
-                            event.message
-                        )
+            repository.getZoneEvents(zoneId, limit = fetchLimit).onSuccess { response ->
+                val events = response.events
+                
+                // Cập nhật giao diện nếu là zone đang được người dùng xem
+                if (zoneId == selectedZone) {
+                    _events.value = events
+                }
+
+                // 2. Lọc các sự kiện nguy cấp mới (critical hoặc water_tank_low)
+                val newCritical = events.filter { 
+                    it.timestamp > lastSeenTimestamp && 
+                    (it.severity == "critical" || it.eventType == "water_tank_low") 
+                }
+                criticalEventsToNotify.addAll(newCritical)
+
+                // 4. Tìm timestamp lớn nhất toàn cục để cập nhật sau này
+                events.maxByOrNull { it.timestamp }?.let {
+                    if (it.timestamp > globalMaxTimestamp) {
+                        globalMaxTimestamp = it.timestamp
                     }
                 }
             }
+        }
+
+        // 3. Gộp thông báo (Chống spam "Muting recently noisy")
+        if (criticalEventsToNotify.isNotEmpty()) {
+            val count = criticalEventsToNotify.size
+            val latestEvent = criticalEventsToNotify.maxBy { it.timestamp }
             
-            newEvents.maxByOrNull { it.timestamp }?.let {
-                sharedPrefsHelper.setLastSeenTimestamp(it.timestamp)
+            // Emit sự kiện mới nhất lên UI flow
+            viewModelScope.launch {
+                _criticalEvent.emit(latestEvent)
             }
+
+            val title: String
+            val message: String
+
+            if (count == 1) {
+                title = "Alert [${latestEvent.zoneId}]: ${latestEvent.eventType.replace("_", " ").uppercase()}"
+                message = latestEvent.message
+            } else {
+                title = "Agriculture Alert: $count New Critical Events"
+                message = "Latest: [${latestEvent.zoneId}] ${latestEvent.message}"
+            }
+
+            // Chỉ bắn 1 thông báo duy nhất sau khi đã duyệt qua tất cả các zone
+            NotificationHelper.showNotification(getApplication(), title, message)
+        }
+
+        // Cập nhật Timestamp mới nhất vào SharedPrefs
+        if (globalMaxTimestamp > lastSeenTimestamp) {
+            sharedPrefsHelper.setLastSeenTimestamp(globalMaxTimestamp)
         }
     }
 
